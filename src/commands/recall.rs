@@ -1083,25 +1083,22 @@ async fn scan_sessions(ds: &Dataset) -> Result<Vec<Session>> {
             cols.push(migrated);
         }
     }
-    let batches = dataset::scan_rows(ds, &cols, None, None).await?;
-
     // A session's fold: its distinct turns and the highest seq seen, which names the last one.
     struct Fold {
         session: Session,
         turns: HashSet<(i64, String)>,
         last_seq: i64,
     }
-    let mut by_id: HashMap<String, Fold> = HashMap::new();
-    for batch in &batches {
+    let by_id: HashMap<String, Fold> = dataset::scan_fold(ds, &cols, None, None, HashMap::new(), |mut by_id, batch| {
         let (sid, ts, wd, turn, harness, repo) = (
-            dataset::strs(batch, "session_id"),
-            dataset::strs(batch, "ts"),
-            dataset::strs(batch, "workdir"),
-            dataset::strs(batch, "turn_uuid"),
-            dataset::strs(batch, "harness"),
-            dataset::strs(batch, "repo"),
+            dataset::strs(&batch, "session_id"),
+            dataset::strs(&batch, "ts"),
+            dataset::strs(&batch, "workdir"),
+            dataset::strs(&batch, "turn_uuid"),
+            dataset::strs(&batch, "harness"),
+            dataset::strs(&batch, "repo"),
         );
-        let seq = dataset::ints(batch, "seq");
+        let seq = dataset::ints(&batch, "seq");
         for i in 0..batch.num_rows() {
             let id = sid.get(i).to_string();
             let row_seq = seq.get(i);
@@ -1132,7 +1129,9 @@ async fn scan_sessions(ds: &Dataset) -> Result<Vec<Session>> {
             }
             fold.turns.insert((row_seq, turn.get(i).to_string()));
         }
-    }
+        by_id
+    })
+    .await?;
 
     let mut out: Vec<Session> = by_id
         .into_values()
